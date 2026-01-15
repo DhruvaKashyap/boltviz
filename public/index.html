@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boltzmann Machine Visualization</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500;700&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-layout">
+        <aside class="sidebar">
+            <header class="app-header">
+                <h1>Dynamic Boltzmann</h1>
+                <p class="subtitle">Neural Dynamics Simulation</p>
+            </header>
+
+            <div class="sidebar-scroll">
+                <section class="control-section">
+                    <h3>Simulation</h3>
+                    <div class="control-group-vertical">
+                        <button id="btn-toggle" class="primary">Start Simulation</button>
+                        <div class="slider-box">
+                            <label for="speed-slider">Update Speed</label>
+                            <input type="range" id="speed-slider" min="1" max="100" value="10">
+                        </div>
+                        <div class="select-box">
+                            <label for="strategy-select">Strategy</label>
+                            <select id="strategy-select">
+                                <option value="random">Random (Async)</option>
+                                <option value="sequential">Sequential (Async)</option>
+                                <option value="synchronous">Synchronous (All)</option>
+                            </select>
+                        </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="check-stochastic">
+                            <label for="check-stochastic">Stochastic (Gibbs)</label>
+                        </div>
+                        <div class="slider-box" id="temp-box" style="display: none;">
+                            <label for="temp-slider">Temperature (T): <input type="number" id="temp-input" step="0.1"
+                                    min="0.1" max="10.0" value="1.0"></label>
+                            <input type="range" id="temp-slider" min="0.1" max="5.0" step="0.1" value="1.0">
+                        </div>
+                    </div>
+                </section>
+
+                <section class="control-section">
+                    <h3>Network</h3>
+                    <div class="control-group-vertical">
+                        <div class="slider-box">
+                            <label for="neuron-slider">Neurons (N): <input type="number" id="neuron-input" step="1"
+                                    min="3" max="1024" value="6"></label>
+                            <input type="range" id="neuron-slider" min="3" max="1024" value="6">
+                        </div>
+                        <div class="presets-grid">
+                            <button class="preset-btn" data-val="16">4²</button>
+                            <button class="preset-btn" data-val="64">8²</button>
+                            <button class="preset-btn" data-val="100">10²</button>
+                            <button class="preset-btn" data-val="256">16²</button>
+                            <button class="preset-btn" data-val="400">20²</button>
+                            <button class="preset-btn" data-val="625">25²</button>
+                            <button class="preset-btn" data-val="900">30²</button>
+                            <button class="preset-btn" data-val="1024">32²</button>
+                        </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="binary-weights">
+                            <label for="binary-weights" id="label-binary">Binary Weights</label>
+                        </div>
+                        <button id="btn-reset-weights" class="secondary">New Random Weights</button>
+                        <button id="btn-reset-state" class="secondary">Randomize State</button>
+                    </div>
+                </section>
+
+                <section class="control-section">
+                    <h3>Memory Pattern</h3>
+                    <div class="control-group-vertical">
+                        <div class="slider-box">
+                            <label for="pattern-count-slider">Number of Patterns (p): <input type="number"
+                                    id="pattern-count-input" step="1" min="1" max="10" value="1"></label>
+                            <input type="range" id="pattern-count-slider" min="1" max="10" value="1">
+                        </div>
+                        <button id="btn-rank1" class="accent-btn" title="Set W = 1/p ∑ m mᵀ">Store Patterns
+                            (W=∑m·mᵀ)</button>
+                    </div>
+                </section>
+
+                <section class="control-section diagnostics" id="overlap-display" style="display: none;">
+                    <h3>Diagnostics</h3>
+                    <div id="overlap-list">
+                        <!-- Multi-overlap values will go here -->
+                        <div class="diagnostic-item">
+                            <span class="label">m·s₀</span>
+                            <span class="value" id="overlap-val-0">0</span>
+                        </div>
+                        <div class="diagnostic-item">
+                            <span class="label">m·sₜ</span>
+                            <span class="value" id="overlap-val-t">0</span>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <footer class="sidebar-footer">
+                <div class="footer-stat">
+                    <span class="label">Step</span>
+                    <span class="value" id="step-value">0</span>
+                </div>
+                <div class="footer-stat highlight">
+                    <span class="label">Energy (E)</span>
+                    <span class="value" id="energy-value">0.0000</span>
+                </div>
+            </footer>
+        </aside>
+
+        <main class="main-content">
+            <div class="viz-grid">
+                <div class="canvas-card" id="card-network">
+                    <div class="card-header">
+                        <h2>Network Graph</h2>
+                    </div>
+                    <div class="canvas-container">
+                        <canvas id="network-canvas"></canvas>
+                    </div>
+                </div>
+
+                <div class="canvas-card" id="card-energy">
+                    <div class="card-header">
+                        <h2>Energy History</h2>
+                    </div>
+                    <div class="canvas-container">
+                        <canvas id="energy-canvas"></canvas>
+                    </div>
+                </div>
+
+                <div class="canvas-card" id="card-state-grid" class="hidden">
+                    <div class="card-header">
+                        <h2>State (s)</h2>
+                    </div>
+                    <div class="canvas-container">
+                        <canvas id="state-grid-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div id="patterns-container" class="viz-grid" style="margin-top: 2rem; display: none;">
+                <!-- Patterns will be dynamically added here -->
+            </div>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>
