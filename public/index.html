@@ -72,6 +72,19 @@
                             <input type="checkbox" id="binary-weights">
                             <label for="binary-weights" id="label-binary">Binary Weights</label>
                         </div>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="zero-diagonal" checked>
+                            <label for="zero-diagonal">Zero Diagonal</label>
+                        </div>
+                        <div class="select-box">
+                            <label for="symmetry-select">Symmetry</label>
+                            <select id="symmetry-select">
+                                <option value="symmetric">Symmetric</option>
+                                <option value="antisymmetric">Anti-Symmetric</option>
+                                <option value="fullydiagonal">Fully Diagonal</option>
+                                <option value="asymmetric">Asymmetric</option>
+                            </select>
+                        </div>
                         <button id="btn-reset-weights" class="secondary">New Random Weights</button>
                         <button id="btn-reset-state" class="secondary">Randomize State</button>
                     </div>
@@ -80,10 +93,22 @@
                 <section class="control-section">
                     <h3>Memory Pattern</h3>
                     <div class="control-group-vertical">
+                        <div class="select-box">
+                            <label for="pattern-type-select">Pattern Type</label>
+                            <select id="pattern-type-select">
+                                <option value="digit">Digits (0-9)</option>
+                                <option value="random">Random Noise</option>
+                            </select>
+                        </div>
                         <div class="slider-box">
                             <label for="pattern-count-slider">Number of Patterns (p): <input type="number"
-                                    id="pattern-count-input" step="1" min="1" max="10" value="1"></label>
+                                    id="pattern-count-input" step="1" min="1" max="100" value="1"></label>
                             <input type="range" id="pattern-count-slider" min="1" max="10" value="1">
+                        </div>
+                        <div class="slider-box">
+                            <label for="pattern-noise-slider">Pattern Noise: <input type="number"
+                                    id="pattern-noise-input" step="0.01" min="0" max="1" value="0.05"></label>
+                            <input type="range" id="pattern-noise-slider" min="0" max="1" step="0.01" value="0.05">
                         </div>
                         <button id="btn-rank1" class="accent-btn" title="Set W = 1/p ∑ m mᵀ">Store Patterns
                             (W=∑m·mᵀ)</button>

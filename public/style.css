@@ -54,6 +54,7 @@ body {
     letter-spacing: -0.03em;
     background: linear-gradient(135deg, var(--text-main), var(--accent));
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
@@ -134,11 +135,13 @@ input[type=range] {
     background: var(--border-dim);
     border-radius: 2px;
     -webkit-appearance: none;
+    appearance: none;
 }
 
 input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none;
-    width: 14px;
+    appearance: none;
+    width: 20px;
     height: 14px;
     background: var(--accent);
     border-radius: 50%;
@@ -295,12 +298,21 @@ button.accent-btn {
 
 #card-network {
     grid-column: 1 / -1;
-    /* Take up more space */
     min-height: 550px;
 }
 
 #card-network.mini-graph {
     min-height: 250px;
+}
+
+.viz-grid.small-n-layout #card-network {
+    grid-column: span 1;
+    min-height: 400px;
+}
+
+.viz-grid.small-n-layout #card-energy {
+    grid-column: span 1;
+    min-height: 400px;
 }
 
 .canvas-card {
@@ -313,7 +325,13 @@ button.accent-btn {
     backdrop-filter: blur(10px);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
     min-height: 350px;
-    transition: transform 0.3s;
+    transition: transform 0.3s, border-color 0.3s, box-shadow 0.3s;
+}
+
+.canvas-card.active-pattern {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 20px var(--accent-glow) !important;
+    transform: scale(1.02);
 }
 
 .canvas-card:hover {

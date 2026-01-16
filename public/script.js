@@ -35,9 +35,14 @@ let state = {
     patterns: [], // Array of patterns
     initialOverlaps: [],
     patternCount: 1,
+    patternType: 'digit',
+    patternNoise: 0.05,
     temperature: 1.0,
     isStochastic: false,
     updateStrategy: 'random',
+    zeroDiagonal: true,
+    weightSymmetry: 'symmetric',
+    currentEnergy: 0,
     sequentialIdx: 0,
     flippedIndices: []
 };
@@ -68,11 +73,18 @@ const selectStrategy = document.getElementById('strategy-select');
 // New Controls
 const sliderPatternCount = document.getElementById('pattern-count-slider');
 const inputPatternCount = document.getElementById('pattern-count-input');
+const sliderPatternNoise = document.getElementById('pattern-noise-slider');
+const inputPatternNoise = document.getElementById('pattern-noise-input');
 const sliderTemp = document.getElementById('temp-slider');
 const inputTemp = document.getElementById('temp-input');
 const divTempBox = document.getElementById('temp-box');
+const selectPatternType = document.getElementById('pattern-type-select');
 const checkStochastic = document.getElementById('check-stochastic');
+const checkZeroDiagonal = document.getElementById('zero-diagonal');
+const selectSymmetry = document.getElementById('symmetry-select');
 const containerPatterns = document.getElementById('patterns-container');
+const vizGrid = document.querySelector('.viz-grid');
+const cardEnergy = document.getElementById('card-energy');
 
 // Cards for visibility
 const cardNetwork = document.getElementById('card-network');
@@ -85,11 +97,16 @@ function init() {
     state.binaryWeights = checkBinary.checked;
     state.speed = parseInt(sliderSpeed.value);
     state.updateStrategy = selectStrategy.value;
+    state.patternType = selectPatternType.value;
     state.patternCount = parseInt(sliderPatternCount.value);
     inputPatternCount.value = state.patternCount;
+    state.patternNoise = parseFloat(sliderPatternNoise.value);
+    inputPatternNoise.value = state.patternNoise;
     state.temperature = parseFloat(sliderTemp.value);
     inputTemp.value = state.temperature.toFixed(1);
     state.isStochastic = checkStochastic.checked;
+    state.zeroDiagonal = checkZeroDiagonal.checked;
+    state.weightSymmetry = selectSymmetry.value;
 
     divTempBox.style.display = state.isStochastic ? 'block' : 'none';
 
@@ -109,6 +126,7 @@ function init() {
     });
     btnResetWeights.addEventListener('click', () => {
         state.patterns = [];
+        state.energyHistory = [];
         updateOverlapDisplay();
         initWeights();
         calcEnergy();
@@ -151,6 +169,20 @@ function init() {
         state.patternCount = val;
     });
 
+    // Patterns Noise Sync
+    sliderPatternNoise.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        inputPatternNoise.value = val.toFixed(2);
+        state.patternNoise = val;
+    });
+    inputPatternNoise.addEventListener('change', (e) => {
+        let val = parseFloat(e.target.value);
+        val = Math.max(0, Math.min(1, val));
+        e.target.value = val.toFixed(2);
+        sliderPatternNoise.value = val;
+        state.patternNoise = val;
+    });
+
     // Temperature Sync
     sliderTemp.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
@@ -177,6 +209,7 @@ function init() {
     checkBinary.addEventListener('change', (e) => {
         state.binaryWeights = e.target.checked;
         state.patterns = [];
+        state.energyHistory = [];
         updateOverlapDisplay();
         initWeights();
         calcEnergy();
@@ -188,9 +221,27 @@ function init() {
         state.sequentialIdx = 0;
     });
 
+    selectPatternType.addEventListener('change', (e) => {
+        state.patternType = e.target.value;
+    });
+
     checkStochastic.addEventListener('change', (e) => {
         state.isStochastic = e.target.checked;
         divTempBox.style.display = state.isStochastic ? 'block' : 'none';
+    });
+
+    checkZeroDiagonal.addEventListener('change', (e) => {
+        state.zeroDiagonal = e.target.checked;
+        initWeights();
+        calcEnergy();
+        draw();
+    });
+
+    selectSymmetry.addEventListener('change', (e) => {
+        state.weightSymmetry = e.target.value;
+        initWeights();
+        calcEnergy();
+        draw();
     });
 
     requestAnimationFrame(loop);
@@ -202,19 +253,28 @@ function updateNeuronCount(val) {
     state.m = null;
 
     // UI adaptation for large N
-    if (val > 100) {
-        cardNetwork.classList.add('mini-graph');
+    if (val > 30) {
+        cardNetwork.style.display = 'none';
+        vizGrid.classList.remove('small-n-layout');
     } else {
-        cardNetwork.classList.remove('mini-graph');
+        cardNetwork.style.display = 'flex';
+        vizGrid.classList.add('small-n-layout');
+        if (val > 100) {
+            cardNetwork.classList.add('mini-graph');
+        } else {
+            cardNetwork.classList.remove('mini-graph');
+        }
     }
 
+    state.patterns = [];
+    state.initialOverlaps = [];
     updateOverlapDisplay();
     initWeights();
     initNeurons();
     calcEnergy();
     draw();
 
-    // Trigger resize because card height changed
+    // Trigger resize because layout changed
     setTimeout(resizeCanvas, 0);
 }
 
@@ -256,18 +316,33 @@ function resizeCanvas() {
 function initWeights() {
     state.weights = [];
     const N = state.neuronCount;
-    for (let i = 0; i < N; i++) {
-        state.weights[i] = [];
-        for (let j = 0; j < N; j++) {
-            if (i === j) {
-                state.weights[i][j] = 0;
-            } else if (j < i) {
-                state.weights[i][j] = state.weights[j][i];
-            } else {
-                if (state.binaryWeights) {
-                    state.weights[i][j] = Math.random() > 0.5 ? 1 : -1;
-                } else {
-                    state.weights[i][j] = (Math.random() * 2) - 1;
+
+    // Initialize empty
+    for (let i = 0; i < N; i++) state.weights[i] = new Array(N).fill(0);
+
+    const getRandom = () => state.binaryWeights ? (Math.random() > 0.5 ? 1 : -1) : (Math.random() * 2 - 1);
+
+    if (state.weightSymmetry === 'fullydiagonal') {
+        for (let i = 0; i < N; i++) {
+            if (!state.zeroDiagonal) state.weights[i][i] = getRandom();
+        }
+    } else {
+        for (let i = 0; i < N; i++) {
+            for (let j = 0; j < N; j++) {
+                if (i === j) {
+                    if (!state.zeroDiagonal) state.weights[i][i] = getRandom();
+                } else if (j > i) {
+                    const val = getRandom();
+                    if (state.weightSymmetry === 'symmetric') {
+                        state.weights[i][j] = val;
+                        state.weights[j][i] = val;
+                    } else if (state.weightSymmetry === 'antisymmetric') {
+                        state.weights[i][j] = val;
+                        state.weights[j][i] = -val;
+                    } else { // asymmetric
+                        state.weights[i][j] = val;
+                        state.weights[j][i] = getRandom();
+                    }
                 }
             }
         }
@@ -280,13 +355,75 @@ function initMultiplePatterns() {
     const N = state.neuronCount;
     const P = state.patternCount;
 
-    // Generate P random patterns
-    for (let p = 0; p < P; p++) {
-        const pattern = [];
+    // Find grid size to match visualization
+    const K = Math.ceil(Math.sqrt(N));
+
+    // Helper to generate a digit pattern using an offscreen canvas
+    const generateDigit = (digit) => {
+        const offCanvas = document.createElement('canvas');
+        offCanvas.width = K;
+        offCanvas.height = K;
+        const offCtx = offCanvas.getContext('2d');
+
+        offCtx.fillStyle = 'black';
+        offCtx.fillRect(0, 0, K, K);
+
+        offCtx.fillStyle = 'white';
+        // Add slight random rotation/jitter to digits
+        const jitter = (Math.random() - 0.5) * (K * 0.1);
+        const rotation = (Math.random() - 0.5) * 0.2;
+
+        offCtx.save();
+        offCtx.translate(K / 2 + jitter, K / 2 + jitter);
+        offCtx.rotate(rotation);
+
+        const fontSize = Math.floor(K * 0.85);
+        offCtx.font = `bold ${fontSize}px "Inter", "Arial", sans-serif`;
+        offCtx.textAlign = 'center';
+        offCtx.textBaseline = 'middle';
+        offCtx.fillText(digit.toString(), 0, K * 0.05);
+        offCtx.restore();
+
+        const imgData = offCtx.getImageData(0, 0, K, K).data;
+        const pattern = new Array(N).fill(-1);
+
         for (let i = 0; i < N; i++) {
-            pattern[i] = Math.random() > 0.5 ? 1 : -1;
+            const r = Math.floor(i / K);
+            const c = i % K;
+            const pixelIdx = (r * K + c) * 4;
+            let val = imgData[pixelIdx] > 120 ? 1 : -1;
+
+            // Add noise: flip pixels with probability state.patternNoise
+            if (Math.random() < state.patternNoise) {
+                val *= -1;
+            }
+            pattern[i] = val;
         }
-        state.patterns.push(pattern);
+        return pattern;
+    };
+
+    // For unique digits: shuffle [0..9]
+    let digitSelection = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    if (state.patternType === 'digit') {
+        for (let i = digitSelection.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [digitSelection[i], digitSelection[j]] = [digitSelection[j], digitSelection[i]];
+        }
+    }
+
+    // Generate P patterns based on selected type
+    for (let p = 0; p < P; p++) {
+        if (state.patternType === 'digit') {
+            // Even with unique digit base, jitter and noise make each pattern unique
+            const digit = digitSelection[p % 10];
+            state.patterns.push(generateDigit(digit));
+        } else {
+            const pattern = [];
+            for (let i = 0; i < N; i++) {
+                pattern[i] = Math.random() > 0.5 ? 1 : -1;
+            }
+            state.patterns.push(pattern);
+        }
     }
 
     // Initialize Weights Matrix with zeros
@@ -299,7 +436,11 @@ function initMultiplePatterns() {
         const m = state.patterns[mu];
         for (let i = 0; i < N; i++) {
             for (let j = 0; j < N; j++) {
-                state.weights[i][j] += (m[i] * m[j]) / P;
+                if (i === j && state.zeroDiagonal) {
+                    state.weights[i][j] = 0;
+                } else {
+                    state.weights[i][j] += (m[i] * m[j]) / P;
+                }
             }
         }
     }
@@ -346,10 +487,24 @@ function updateOverlapDisplay() {
             setTimeout(resizeCanvas, 0);
         }
 
+        let maxAbsOverlap = -1;
+        let bestPatternIdx = -1;
+        const currentOverlaps = [];
+
         state.patterns.forEach((m, i) => {
-            const val0 = state.initialOverlaps[i];
             let valt = 0;
             for (let j = 0; j < state.neuronCount; j++) valt += m[j] * state.neurons[j];
+            currentOverlaps.push(valt);
+
+            const absVal = Math.abs(valt);
+            if (absVal > maxAbsOverlap) {
+                maxAbsOverlap = absVal;
+                bestPatternIdx = i;
+            }
+        });
+
+        state.patterns.forEach((m, i) => {
+            const valt = currentOverlaps[i];
 
             // Add to sidebar diagnostics
             const item = document.createElement('div');
@@ -360,11 +515,22 @@ function updateOverlapDisplay() {
             `;
             elOverlapList.appendChild(item);
 
-            // Update card diagnostic
+            // Update card diagnostic and highlight
             const elValT = document.getElementById(`overlap-val-t-${i}`);
+            const card = containerPatterns.children[i];
+
             if (elValT) {
                 elValT.innerText = (valt > 0 ? '+' : '') + valt;
                 elValT.className = 'value ' + (valt > 0 ? 'positive' : (valt < 0 ? 'negative' : ''));
+            }
+
+            if (card) {
+                // Highlight the best pattern if there's significant overlap
+                if (i === bestPatternIdx && maxAbsOverlap > 0.05 * state.neuronCount) {
+                    card.classList.add('active-pattern');
+                } else {
+                    card.classList.remove('active-pattern');
+                }
             }
         });
 
@@ -412,8 +578,9 @@ function update() {
         const oldNeurons = [...state.neurons];
         for (let i = 0; i < state.neuronCount; i++) {
             let field = 0;
+            const weights_i = state.weights[i];
             for (let j = 0; j < state.neuronCount; j++) {
-                field += state.weights[i][j] * oldNeurons[j];
+                field += weights_i[j] * oldNeurons[j];
             }
             const newVal = getNewValue(i, field, oldNeurons[i]);
             if (newVal !== oldNeurons[i]) state.flippedIndices.push(i);
@@ -421,6 +588,8 @@ function update() {
         }
         state.lastActiveIdx = -2;
         state.lastFlip = state.flippedIndices.length > 0;
+        // Recalculate full energy after synchronous update
+        refreshEnergyValue();
     } else {
         let idx;
         if (state.updateStrategy === 'sequential') {
@@ -438,29 +607,57 @@ function update() {
 
         const newVal = getNewValue(idx, field, oldVal);
 
+        if (newVal !== oldVal) {
+            // Delta Energy O(1) given field: dE = -h_i * ds_i - 0.5 * w_ii * (ds_i)^2
+            // For s in {-1, 1}, ds = 2 or -2.
+            const ds = newVal - oldVal;
+            const deltaE = -field * ds - 0.5 * state.weights[idx][idx] * ds * ds;
+            state.currentEnergy += deltaE;
+            state.lastFlip = true;
+            state.flippedIndices = [idx];
+        } else {
+            state.lastFlip = false;
+        }
+
         state.neurons[idx] = newVal;
         state.lastActiveIdx = idx;
-        state.lastFlip = (newVal !== oldVal);
-        if (state.lastFlip) state.flippedIndices = [idx];
     }
 
     state.step++;
-    calcEnergy();
+
+    // Add to history
+    state.energyHistory.push(state.currentEnergy);
+    if (state.energyHistory.length > 200) state.energyHistory.shift();
+    elEnergyValue.innerText = state.currentEnergy.toFixed(4);
+    elStepValue.innerText = state.step;
+
     if (state.patterns.length > 0) updateOverlapDisplay();
 }
 
-function calcEnergy() {
+function refreshEnergyValue() {
     let e = 0;
     const N = state.neuronCount;
+    // Standard energy: -0.5 * sum w_ij s_i s_j
     for (let i = 0; i < N; i++) {
+        let rowSum = 0;
+        const weights_i = state.weights[i];
         for (let j = 0; j < N; j++) {
-            e += state.weights[i][j] * state.neurons[i] * state.neurons[j];
+            rowSum += weights_i[j] * state.neurons[j];
         }
+        e += state.neurons[i] * rowSum;
     }
-    e = -0.5 * e;
-    state.energyHistory.push(e);
+    state.currentEnergy = -0.5 * e;
+
+    // Check for numerical artifacts (Infinity/NaN)
+    if (!isFinite(state.currentEnergy)) state.currentEnergy = 0;
+}
+
+function calcEnergy() {
+    refreshEnergyValue();
+
+    state.energyHistory.push(state.currentEnergy);
     if (state.energyHistory.length > 200) state.energyHistory.shift();
-    elEnergyValue.innerText = e.toFixed(4);
+    elEnergyValue.innerText = state.currentEnergy.toFixed(4);
     elStepValue.innerText = state.step;
 }
 
@@ -576,10 +773,22 @@ function drawEnergy() {
     let minE = Math.min(...state.energyHistory);
     let maxE = Math.max(...state.energyHistory);
     let range = maxE - minE;
-    if (range === 0) range = 1;
-    minE -= range * 0.1; maxE += range * 0.1;
+
+    // Prevent artifacts from tiny precision ranges (e.g. 1e-15)
+    if (range < 0.001) {
+        minE -= 0.5;
+        maxE += 0.5;
+        range = 1;
+    } else {
+        minE -= range * 0.1;
+        maxE += range * 0.1;
+    }
+
     const mapX = (i) => (i / (state.energyHistory.length - 1 || 1)) * (w - 20) + 10;
-    const mapY = (val) => h - ((val - minE) / (maxE - minE) * (h - 20) + 10);
+    const mapY = (val) => {
+        const y = h - ((val - minE) / (maxE - minE || 1) * (h - 20) + 10);
+        return isFinite(y) ? y : h / 2;
+    };
     ctxEnergy.beginPath();
     ctxEnergy.strokeStyle = CONFIG.colors.energyLine;
     ctxEnergy.lineWidth = 2;
