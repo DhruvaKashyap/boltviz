@@ -141,11 +141,21 @@ input[type=range] {
 input[type=range]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 20px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     background: var(--accent);
-    border-radius: 50%;
+    border-radius: 3px;
     cursor: pointer;
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+
+input[type=range]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    background: var(--accent);
+    border-radius: 3px;
+    cursor: pointer;
+    border: none;
     box-shadow: 0 0 10px var(--accent-glow);
 }
 
@@ -161,13 +171,13 @@ select {
 }
 
 button {
-    padding: 0.75rem;
+    padding: 0.8rem 1rem;
     border-radius: 8px;
     border: 1px solid var(--border-dim);
     background: rgba(255, 255, 255, 0.03);
     color: var(--text-main);
     font-weight: 600;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     cursor: pointer;
     transition: all 0.2s;
 }
@@ -190,6 +200,18 @@ button.primary:hover {
 button.accent-btn {
     border: 1px solid var(--accent);
     color: var(--accent);
+}
+
+.button-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.button-group button {
+    flex: 1;
+    padding: 1rem;
+    font-size: 0.95rem;
+    font-weight: 700;
 }
 
 .presets-grid {

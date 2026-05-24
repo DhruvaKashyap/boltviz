@@ -31,8 +31,7 @@ let state = {
     binaryWeights: false,
     lastActiveIdx: -1,
     lastFlip: false,
-    m: null, // Legacy for single m
-    patterns: [], // Array of patterns
+    patterns: [],
     initialOverlaps: [],
     patternCount: 1,
     patternType: 'digit',
@@ -44,7 +43,14 @@ let state = {
     weightSymmetry: 'symmetric',
     currentEnergy: 0,
     sequentialIdx: 0,
-    flippedIndices: []
+    flippedIndices: [],
+    // Learning & Hidden Units
+    hiddenRatio: 0,
+    learningRate: 0.01,
+    isLearning: false,
+    useMeanField: false,
+    visibleIndices: [],
+    hiddenIndices: []
 };
 
 // DOM Elements
@@ -86,12 +92,21 @@ const containerPatterns = document.getElementById('patterns-container');
 const vizGrid = document.querySelector('.viz-grid');
 const cardEnergy = document.getElementById('card-energy');
 
+// Learning Controls
+const sliderHidden = document.getElementById('hidden-slider');
+const inputHidden = document.getElementById('hidden-input');
+const sliderLearningRate = document.getElementById('learning-rate-slider');
+const inputLearningRate = document.getElementById('learning-rate-input');
+const checkMeanField = document.getElementById('check-meanfield');
+const btnTrain = document.getElementById('btn-train');
+
 // Cards for visibility
 const cardNetwork = document.getElementById('card-network');
 const cardStateGrid = document.getElementById('card-state-grid');
 
 // Initialization
 function init() {
+    // --- UI Sync ---
     state.neuronCount = parseInt(sliderNeuron.value);
     inputNeuron.value = state.neuronCount;
     state.binaryWeights = checkBinary.checked;
@@ -100,48 +115,33 @@ function init() {
     state.patternType = selectPatternType.value;
     state.patternCount = parseInt(sliderPatternCount.value);
     inputPatternCount.value = state.patternCount;
-    state.patternNoise = parseFloat(sliderPatternNoise.value);
-    inputPatternNoise.value = state.patternNoise;
+    state.patternNoise = sliderPatternNoise ? parseFloat(sliderPatternNoise.value) : 0.05;
+    if (inputPatternNoise) inputPatternNoise.value = state.patternNoise;
     state.temperature = parseFloat(sliderTemp.value);
     inputTemp.value = state.temperature.toFixed(1);
     state.isStochastic = checkStochastic.checked;
     state.zeroDiagonal = checkZeroDiagonal.checked;
     state.weightSymmetry = selectSymmetry.value;
 
+    // Learning Init
+    state.hiddenRatio = parseInt(sliderHidden.value) / 100;
+    inputHidden.value = sliderHidden.value;
+    state.learningRate = parseFloat(sliderLearningRate.value);
+    inputLearningRate.value = state.learningRate;
+    state.useMeanField = checkMeanField.checked;
+
     divTempBox.style.display = state.isStochastic ? 'block' : 'none';
 
-    initWeights();
-    initNeurons();
-    calcEnergy();
+    initWeights(); // Must initialize weights first
+    initNeurons(); // Then partition neurons
+    refreshEnergyValue();
 
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
 
-    // Event Listeners
-    btnToggle.addEventListener('click', toggleSimulation);
-    btnResetState.addEventListener('click', () => {
-        resetNeurons();
-        if (state.patterns.length > 0) calcOverlap();
-        draw();
-    });
-    btnResetWeights.addEventListener('click', () => {
-        state.patterns = [];
-        state.energyHistory = [];
-        updateOverlapDisplay();
-        initWeights();
-        calcEnergy();
-        draw();
-    });
-    btnRank1.addEventListener('click', () => {
-        initMultiplePatterns();
-        resetNeurons();
-        calcOverlap();
-        draw();
-    });
+    // --- Event Listeners ---
 
-    sliderSpeed.addEventListener('input', (e) => { state.speed = parseInt(e.target.value); });
-
-    // Neurons Sync
+    // Architecture
     sliderNeuron.addEventListener('input', (e) => {
         const val = parseInt(e.target.value);
         inputNeuron.value = val;
@@ -155,93 +155,156 @@ function init() {
         updateNeuronCount(val);
     });
 
-    // Patterns Sync
-    sliderPatternCount.addEventListener('input', (e) => {
-        const val = parseInt(e.target.value);
-        inputPatternCount.value = val;
-        state.patternCount = val;
-    });
-    inputPatternCount.addEventListener('change', (e) => {
-        let val = parseInt(e.target.value);
-        val = Math.max(1, Math.min(100, val)); // Allow more than 10 via input
-        e.target.value = val;
-        sliderPatternCount.value = val;
-        state.patternCount = val;
-    });
-
-    // Patterns Noise Sync
-    sliderPatternNoise.addEventListener('input', (e) => {
-        const val = parseFloat(e.target.value);
-        inputPatternNoise.value = val.toFixed(2);
-        state.patternNoise = val;
-    });
-    inputPatternNoise.addEventListener('change', (e) => {
-        let val = parseFloat(e.target.value);
-        val = Math.max(0, Math.min(1, val));
-        e.target.value = val.toFixed(2);
-        sliderPatternNoise.value = val;
-        state.patternNoise = val;
-    });
-
-    // Temperature Sync
-    sliderTemp.addEventListener('input', (e) => {
-        const val = parseFloat(e.target.value);
-        inputTemp.value = val.toFixed(1);
-        state.temperature = val;
-    });
-    inputTemp.addEventListener('change', (e) => {
-        let val = parseFloat(e.target.value);
-        val = Math.max(0.1, Math.min(100, val)); // Allow higher T via input
-        e.target.value = val.toFixed(1);
-        sliderTemp.value = val;
-        state.temperature = val;
-    });
-
-    // Preset buttons
     document.querySelectorAll('.preset-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const val = parseInt(btn.dataset.val);
-            sliderNeuron.value = val;
             updateNeuronCount(val);
         });
     });
 
-    checkBinary.addEventListener('change', (e) => {
-        state.binaryWeights = e.target.checked;
-        state.patterns = [];
-        state.energyHistory = [];
-        updateOverlapDisplay();
-        initWeights();
-        calcEnergy();
+    sliderHidden.addEventListener('input', (e) => {
+        const val = parseInt(e.target.value);
+        inputHidden.value = val;
+        state.hiddenRatio = val / 100;
+        initNeurons();
         draw();
     });
-
-    selectStrategy.addEventListener('change', (e) => {
-        state.updateStrategy = e.target.value;
-        state.sequentialIdx = 0;
-    });
-
-    selectPatternType.addEventListener('change', (e) => {
-        state.patternType = e.target.value;
-    });
-
-    checkStochastic.addEventListener('change', (e) => {
-        state.isStochastic = e.target.checked;
-        divTempBox.style.display = state.isStochastic ? 'block' : 'none';
-    });
-
-    checkZeroDiagonal.addEventListener('change', (e) => {
-        state.zeroDiagonal = e.target.checked;
-        initWeights();
-        calcEnergy();
+    inputHidden.addEventListener('change', (e) => {
+        let val = parseInt(e.target.value);
+        val = Math.max(0, Math.min(90, val));
+        e.target.value = val;
+        sliderHidden.value = val;
+        state.hiddenRatio = val / 100;
+        initNeurons();
         draw();
     });
 
     selectSymmetry.addEventListener('change', (e) => {
         state.weightSymmetry = e.target.value;
         initWeights();
-        calcEnergy();
+        refreshEnergyValue();
         draw();
+    });
+    checkZeroDiagonal.addEventListener('change', (e) => {
+        state.zeroDiagonal = e.target.checked;
+        initWeights();
+        refreshEnergyValue();
+        draw();
+    });
+    checkBinary.addEventListener('change', (e) => {
+        state.binaryWeights = e.target.checked;
+        state.patterns = [];
+        state.energyHistory = [];
+        updateOverlapDisplay();
+        initWeights();
+        refreshEnergyValue();
+        draw();
+    });
+    btnResetWeights.addEventListener('click', () => {
+        state.patterns = [];
+        state.energyHistory = [];
+        updateOverlapDisplay();
+        initWeights();
+        refreshEnergyValue();
+        draw();
+    });
+
+    // Learning
+    sliderLearningRate.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        inputLearningRate.value = val;
+        state.learningRate = val;
+    });
+    inputLearningRate.addEventListener('change', (e) => {
+        let val = parseFloat(e.target.value);
+        val = Math.max(0.001, Math.min(1.0, val));
+        e.target.value = val;
+        sliderLearningRate.value = val;
+        state.learningRate = val;
+    });
+    selectPatternType.addEventListener('change', (e) => {
+        state.patternType = e.target.value;
+    });
+    sliderPatternCount.addEventListener('input', (e) => {
+        state.patternCount = parseInt(e.target.value);
+        inputPatternCount.value = state.patternCount;
+    });
+    inputPatternCount.addEventListener('change', (e) => {
+        let val = parseInt(e.target.value);
+        val = Math.max(1, Math.min(100, val));
+        state.patternCount = val;
+        e.target.value = val;
+        sliderPatternCount.value = val;
+    });
+    sliderPatternNoise.addEventListener('input', (e) => {
+        state.patternNoise = parseFloat(e.target.value);
+        inputPatternNoise.value = state.patternNoise.toFixed(2);
+    });
+    inputPatternNoise.addEventListener('change', (e) => {
+        let val = parseFloat(e.target.value);
+        val = Math.max(0, Math.min(1, val));
+        state.patternNoise = val;
+        e.target.value = val.toFixed(2);
+        sliderPatternNoise.value = val;
+    });
+    btnRank1.addEventListener('click', () => {
+        initMultiplePatterns();
+        resetNeurons();
+        calcOverlap();
+        draw();
+    });
+    btnTrain.addEventListener('click', () => {
+        state.isLearning = !state.isLearning;
+        btnTrain.innerText = state.isLearning ? "Stop Training" : "Run Training Loop";
+        btnTrain.classList.toggle('primary');
+        if (state.isLearning) {
+            state.isRunning = false; // Stop inference
+            btnToggle.innerText = "Start Simulation";
+            btnToggle.classList.remove('primary');
+            requestAnimationFrame(trainLoop);
+        }
+    });
+
+    // Inference
+    checkMeanField.addEventListener('change', (e) => {
+        state.useMeanField = e.target.checked;
+    });
+    checkStochastic.addEventListener('change', (e) => {
+        state.isStochastic = e.target.checked;
+        divTempBox.style.display = state.isStochastic ? 'block' : 'none';
+    });
+    sliderTemp.addEventListener('input', (e) => {
+        state.temperature = parseFloat(e.target.value);
+        inputTemp.value = state.temperature.toFixed(1);
+    });
+    inputTemp.addEventListener('change', (e) => {
+        let val = parseFloat(e.target.value);
+        val = Math.max(0.1, Math.min(100, val));
+        state.temperature = val;
+        e.target.value = val.toFixed(1);
+        sliderTemp.value = val;
+    });
+    sliderSpeed.addEventListener('input', (e) => {
+        state.speed = parseInt(e.target.value);
+    });
+    selectStrategy.addEventListener('change', (e) => {
+        state.updateStrategy = e.target.value;
+        state.sequentialIdx = 0;
+    });
+    btnResetState.addEventListener('click', () => {
+        resetNeurons();
+        if (state.patterns.length > 0) calcOverlap();
+        draw();
+    });
+    btnToggle.addEventListener('click', () => {
+        state.isRunning = !state.isRunning;
+        btnToggle.innerText = state.isRunning ? "Stop Simulation" : "Start Simulation";
+        btnToggle.classList.toggle('primary');
+        if (state.isRunning) {
+            state.isLearning = false; // Stop training
+            btnTrain.innerText = "Run Training Loop";
+            btnTrain.classList.remove('primary');
+        }
     });
 
     requestAnimationFrame(loop);
@@ -250,28 +313,25 @@ function init() {
 function updateNeuronCount(val) {
     state.neuronCount = val;
     inputNeuron.value = val;
-    state.m = null;
+    sliderNeuron.value = val;
 
-    // UI adaptation for large N
-    if (val > 30) {
-        cardNetwork.style.display = 'none';
+    // UI adaptation for large N - adjust layout but keep network visible
+    if (val > 100) {
+        cardNetwork.classList.add('mini-graph');
+        vizGrid.classList.remove('small-n-layout');
+    } else if (val > 30) {
+        cardNetwork.classList.remove('mini-graph');
         vizGrid.classList.remove('small-n-layout');
     } else {
-        cardNetwork.style.display = 'flex';
+        cardNetwork.classList.remove('mini-graph');
         vizGrid.classList.add('small-n-layout');
-        if (val > 100) {
-            cardNetwork.classList.add('mini-graph');
-        } else {
-            cardNetwork.classList.remove('mini-graph');
-        }
     }
 
     state.patterns = [];
     state.initialOverlaps = [];
     updateOverlapDisplay();
     initWeights();
-    initNeurons();
-    calcEnergy();
+    initNeurons(); // This calls resetNeurons() which calls calcEnergy()
     draw();
 
     // Trigger resize because layout changed
@@ -322,26 +382,51 @@ function initWeights() {
 
     const getRandom = () => state.binaryWeights ? (Math.random() > 0.5 ? 1 : -1) : (Math.random() * 2 - 1);
 
-    if (state.weightSymmetry === 'fullydiagonal') {
-        for (let i = 0; i < N; i++) {
-            if (!state.zeroDiagonal) state.weights[i][i] = getRandom();
+    // If we have hidden units, create RBM (bipartite) structure
+    if (state.hiddenRatio > 0) {
+        const numHidden = Math.floor(N * state.hiddenRatio);
+        const numVisible = N - numHidden;
+
+        // Only create connections between visible and hidden layers
+        for (let i = 0; i < numVisible; i++) { // visible neurons
+            for (let j = numVisible; j < N; j++) { // hidden neurons
+                const val = getRandom();
+                if (state.weightSymmetry === 'symmetric') {
+                    state.weights[i][j] = val;
+                    state.weights[j][i] = val;
+                } else if (state.weightSymmetry === 'antisymmetric') {
+                    state.weights[i][j] = val;
+                    state.weights[j][i] = -val;
+                } else { // asymmetric
+                    state.weights[i][j] = val;
+                    state.weights[j][i] = getRandom();
+                }
+            }
         }
+        // Intra-layer connections are zero (already initialized to 0)
     } else {
-        for (let i = 0; i < N; i++) {
-            for (let j = 0; j < N; j++) {
-                if (i === j) {
-                    if (!state.zeroDiagonal) state.weights[i][i] = getRandom();
-                } else if (j > i) {
-                    const val = getRandom();
-                    if (state.weightSymmetry === 'symmetric') {
-                        state.weights[i][j] = val;
-                        state.weights[j][i] = val;
-                    } else if (state.weightSymmetry === 'antisymmetric') {
-                        state.weights[i][j] = val;
-                        state.weights[j][i] = -val;
-                    } else { // asymmetric
-                        state.weights[i][j] = val;
-                        state.weights[j][i] = getRandom();
+        // Standard fully-connected Boltzmann Machine
+        if (state.weightSymmetry === 'fullydiagonal') {
+            for (let i = 0; i < N; i++) {
+                if (!state.zeroDiagonal) state.weights[i][i] = getRandom();
+            }
+        } else {
+            for (let i = 0; i < N; i++) {
+                for (let j = 0; j < N; j++) {
+                    if (i === j) {
+                        if (!state.zeroDiagonal) state.weights[i][i] = getRandom();
+                    } else if (j > i) {
+                        const val = getRandom();
+                        if (state.weightSymmetry === 'symmetric') {
+                            state.weights[i][j] = val;
+                            state.weights[j][i] = val;
+                        } else if (state.weightSymmetry === 'antisymmetric') {
+                            state.weights[i][j] = val;
+                            state.weights[j][i] = -val;
+                        } else { // asymmetric
+                            state.weights[i][j] = val;
+                            state.weights[j][i] = getRandom();
+                        }
                     }
                 }
             }
@@ -548,9 +633,23 @@ function initNeurons() {
 
 function resetNeurons() {
     state.neurons = [];
+    state.visibleIndices = [];
+    state.hiddenIndices = [];
+
     const N = state.neuronCount;
+    const numHidden = Math.floor(N * state.hiddenRatio);
+    const numVisible = N - numHidden;
+
     for (let i = 0; i < N; i++) {
-        state.neurons[i] = Math.random() > 0.5 ? 1 : -1;
+        // Initialize with random small values or binary
+        if (state.useMeanField) {
+            state.neurons[i] = (Math.random() * 2 - 1) * 0.1;
+        } else {
+            state.neurons[i] = Math.random() > 0.5 ? 1 : -1;
+        }
+
+        if (i < numVisible) state.visibleIndices.push(i);
+        else state.hiddenIndices.push(i);
     }
     state.step = 0;
     state.energyHistory = [];
@@ -565,7 +664,11 @@ function update() {
     state.flippedIndices = [];
 
     const getNewValue = (idx, field, currentVal) => {
-        if (state.isStochastic) {
+        if (state.useMeanField) {
+            // Mean Field Equation: m_i = tanh(beta * field)
+            // beta = 1/T
+            return Math.tanh(field / state.temperature);
+        } else if (state.isStochastic) {
             // Gibbs Sampling: P(s=1) = 1 / (1 + exp(-2*field / T))
             const prob = 1 / (1 + Math.exp(-2 * field / state.temperature));
             return Math.random() < prob ? 1 : -1;
@@ -635,12 +738,18 @@ function update() {
 }
 
 function refreshEnergyValue() {
-    let e = 0;
     const N = state.neuronCount;
+    let e = 0;
+    // Safety check: ensure weights array exists
+    if (!state.weights || state.weights.length !== N) {
+        state.currentEnergy = 0;
+        return;
+    }
     // Standard energy: -0.5 * sum w_ij s_i s_j
     for (let i = 0; i < N; i++) {
         let rowSum = 0;
         const weights_i = state.weights[i];
+        if (!weights_i) continue; // Skip if row doesn't exist
         for (let j = 0; j < N; j++) {
             rowSum += weights_i[j] * state.neurons[j];
         }
@@ -679,6 +788,100 @@ function loop(timestamp) {
     requestAnimationFrame(loop);
 }
 
+function trainLoop(timestamp) {
+    if (!state.isLearning) return;
+
+    // CD-1 Learning Step
+    // 1. Pick a training pattern
+    if (state.patterns.length > 0) {
+        const pIdx = Math.floor(Math.random() * state.patterns.length);
+        const pattern = state.patterns[pIdx];
+
+        // --- Positive Phase ---
+        // Clamp visible units
+        const posState = [...state.neurons];
+        for (let idx of state.visibleIndices) {
+            posState[idx] = pattern[idx];
+        }
+        // Settle hidden units (mean field or stochastic)
+        for (let idx of state.hiddenIndices) {
+            let field = 0;
+            for (let j = 0; j < state.neuronCount; j++) {
+                field += state.weights[idx][j] * posState[j];
+            }
+            if (state.useMeanField) {
+                posState[idx] = Math.tanh(field / state.temperature);
+            } else {
+                const prob = 1 / (1 + Math.exp(-2 * field / state.temperature));
+                posState[idx] = Math.random() < prob ? 1 : -1;
+            }
+        }
+
+        // Compute positive correlations
+        const posCorrelations = new Array(state.neuronCount).fill(0).map(() => new Array(state.neuronCount).fill(0));
+        for (let i = 0; i < state.neuronCount; i++) {
+            for (let j = 0; j < state.neuronCount; j++) {
+                posCorrelations[i][j] = posState[i] * posState[j];
+            }
+        }
+
+        // --- Negative Phase (Reconstruction) ---
+        const negState = [...posState];
+        // Run network for k steps (CD-1 for now, or just settled)
+        // Update all units once (synchronous-ish or sequential)
+        // Efficient way: Update Visibles then Hiddens
+
+        // Update Visibles from Hiddens
+        for (let idx of state.visibleIndices) {
+            let field = 0;
+            for (let j = 0; j < state.neuronCount; j++) {
+                field += state.weights[idx][j] * negState[j];
+            }
+            if (state.useMeanField) {
+                negState[idx] = Math.tanh(field / state.temperature);
+            } else {
+                const prob = 1 / (1 + Math.exp(-2 * field / state.temperature));
+                negState[idx] = Math.random() < prob ? 1 : -1;
+            }
+        }
+        // Update Hiddens from new Visibles
+        for (let idx of state.hiddenIndices) {
+            let field = 0;
+            for (let j = 0; j < state.neuronCount; j++) {
+                field += state.weights[idx][j] * negState[j];
+            }
+            if (state.useMeanField) {
+                negState[idx] = Math.tanh(field / state.temperature);
+            } else {
+                const prob = 1 / (1 + Math.exp(-2 * field / state.temperature));
+                negState[idx] = Math.random() < prob ? 1 : -1;
+            }
+        }
+
+        // --- Weight Update ---
+        const eta = state.learningRate;
+        for (let i = 0; i < state.neuronCount; i++) {
+            for (let j = i; j < state.neuronCount; j++) { // Symmetric update
+                if (i === j && state.zeroDiagonal) continue;
+
+                const negCorr = negState[i] * negState[j];
+                const delta = eta * (posCorrelations[i][j] - negCorr);
+
+                state.weights[i][j] += delta;
+                state.weights[j][i] = state.weights[i][j];
+            }
+        }
+
+        // Update global state for visualization
+        state.neurons = negState;
+    }
+
+    state.step++;
+    refreshEnergyValue();
+    draw();
+    requestAnimationFrame(trainLoop);
+}
+
 function draw() {
     if (!state.weights || state.weights.length === 0) return;
     drawNetwork();
@@ -697,35 +900,107 @@ function drawNetwork() {
     ctxNetwork.clearRect(0, 0, w, h);
     const N = state.neuronCount;
     const positions = [];
-    for (let i = 0; i < N; i++) {
-        const angle = (2 * Math.PI * i) / N - Math.PI / 2;
-        positions.push({ x: cx + R * Math.cos(angle), y: cy + R * Math.sin(angle) });
+
+    // Check if we have hidden units (RBM mode)
+    const isRBM = state.hiddenRatio > 0;
+    const numHidden = isRBM ? Math.floor(N * state.hiddenRatio) : 0;
+    const numVisible = N - numHidden;
+
+    // Layout: RBM uses bipartite (two columns), standard uses circle
+    if (isRBM) {
+        // Bipartite layout: visible on left, hidden on right
+        const leftX = w * 0.25;
+        const rightX = w * 0.75;
+        const verticalSpacing = h / (Math.max(numVisible, numHidden) + 1);
+
+        // Visible neurons (left column)
+        for (let i = 0; i < numVisible; i++) {
+            const yOffset = (h - (numVisible - 1) * verticalSpacing) / 2;
+            positions.push({ x: leftX, y: yOffset + i * verticalSpacing });
+        }
+        // Hidden neurons (right column)
+        for (let i = 0; i < numHidden; i++) {
+            const yOffset = (h - (numHidden - 1) * verticalSpacing) / 2;
+            positions.push({ x: rightX, y: yOffset + i * verticalSpacing });
+        }
+    } else {
+        // Circular layout for standard Boltzmann Machine
+        for (let i = 0; i < N; i++) {
+            const angle = (2 * Math.PI * i) / N - Math.PI / 2;
+            positions.push({ x: cx + R * Math.cos(angle), y: cy + R * Math.sin(angle) });
+        }
     }
 
-    // Performance threshold for edge drawing
-    if (N <= 150) {
-        for (let i = 0; i < N; i++) {
-            for (let j = i + 1; j < N; j++) {
-                const weight = state.weights[i][j];
-                if (Math.abs(weight) < 0.01) continue;
-                const p1 = positions[i];
-                const p2 = positions[j];
-                ctxNetwork.beginPath();
-                ctxNetwork.moveTo(p1.x, p1.y);
-                ctxNetwork.lineTo(p2.x, p2.y);
-                ctxNetwork.strokeStyle = weight > 0 ? CONFIG.colors.edgePositive : CONFIG.colors.edgeNegative;
-                ctxNetwork.lineWidth = Math.abs(weight) * (N > 50 ? 2 : 5);
-                ctxNetwork.stroke();
+    // Draw edges (hide when N > 30 per user request)
+    if (N <= 30) {
+        if (isRBM) {
+            // Only draw edges between visible and hidden layers
+            for (let i = 0; i < numVisible; i++) {
+                for (let j = numVisible; j < N; j++) {
+                    const weight = state.weights[i] && state.weights[i][j];
+                    if (weight === undefined || Math.abs(weight) < 0.01) continue;
+                    const p1 = positions[i];
+                    const p2 = positions[j];
+                    ctxNetwork.beginPath();
+                    ctxNetwork.moveTo(p1.x, p1.y);
+                    ctxNetwork.lineTo(p2.x, p2.y);
+                    ctxNetwork.strokeStyle = weight > 0 ? CONFIG.colors.edgePositive : CONFIG.colors.edgeNegative;
+                    ctxNetwork.lineWidth = Math.abs(weight) * 3;
+                    ctxNetwork.globalAlpha = 0.4;
+                    ctxNetwork.stroke();
+                    ctxNetwork.globalAlpha = 1.0;
+                }
+            }
+        } else {
+            // Draw all edges for standard Boltzmann Machine
+            for (let i = 0; i < N; i++) {
+                for (let j = i + 1; j < N; j++) {
+                    const weight = state.weights[i] && state.weights[i][j];
+                    if (weight === undefined || Math.abs(weight) < 0.01) continue;
+                    const p1 = positions[i];
+                    const p2 = positions[j];
+                    ctxNetwork.beginPath();
+                    ctxNetwork.moveTo(p1.x, p1.y);
+                    ctxNetwork.lineTo(p2.x, p2.y);
+                    ctxNetwork.strokeStyle = weight > 0 ? CONFIG.colors.edgePositive : CONFIG.colors.edgeNegative;
+                    ctxNetwork.lineWidth = Math.abs(weight) * 5;
+                    ctxNetwork.stroke();
+                }
             }
         }
     }
 
     const activeRadius = N > 500 ? 1 : (N > 200 ? 3 : (N > 100 ? 5 : (N > 40 ? 6 : (N > 20 ? 12 : CONFIG.neuronRadius))));
     positions.forEach((p, i) => {
+        // Safety check: ensure neuron exists
+        if (!state.neurons || i >= state.neurons.length) return;
+
+        // Continuous value support for Mean Field
         const val = state.neurons[i];
         ctxNetwork.beginPath();
         ctxNetwork.arc(p.x, p.y, activeRadius, 0, 2 * Math.PI);
-        ctxNetwork.fillStyle = val > 0 ? CONFIG.colors.neuronOn : CONFIG.colors.neuronOff;
+
+        // Color based on Hidden/Visible and Value
+        const isHidden = state.hiddenIndices.includes(i);
+        if (isHidden) {
+            // Purple for hidden
+            const intensity = Math.abs(val);
+            const alpha = 0.3 + 0.7 * intensity;
+            ctxNetwork.fillStyle = val > 0
+                ? `rgba(168, 85, 247, ${alpha})` // Purple-500
+                : `rgba(107, 33, 168, ${alpha})`; // Purple-800
+        } else {
+            // Standard Green/Red for Visible
+            if (state.useMeanField) {
+                const intensity = Math.abs(val);
+                ctxNetwork.fillStyle = val > 0
+                    ? `rgba(16, 185, 129, ${intensity})`
+                    : `rgba(239, 68, 68, ${intensity})`;
+            } else {
+                ctxNetwork.fillStyle = val > 0 ? CONFIG.colors.neuronOn : CONFIG.colors.neuronOff;
+            }
+        }
+
         if (N <= 30) {
             ctxNetwork.shadowColor = ctxNetwork.fillStyle;
             ctxNetwork.shadowBlur = 10;

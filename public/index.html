@@ -22,40 +22,48 @@
             </header>
 
             <div class="sidebar-scroll">
-                <section class="control-section">
-                    <h3>Simulation</h3>
-                    <div class="control-group-vertical">
+                <!-- SECTION 1: SIMULATION CONTROLS -->
+                <section class="control-group-vertical"
+                    style="border: 1px solid rgba(6, 182, 212, 0.3); background: rgba(6, 182, 212, 0.05); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                    <h3 style="color: #06b6d4; margin-top: 0;">Simulation</h3>
+                    <div class="button-group">
+                        <button id="btn-reset-state">Randomize State</button>
                         <button id="btn-toggle" class="primary">Start Simulation</button>
-                        <div class="slider-box">
-                            <label for="speed-slider">Update Speed</label>
-                            <input type="range" id="speed-slider" min="1" max="100" value="10">
-                        </div>
-                        <div class="select-box">
-                            <label for="strategy-select">Strategy</label>
-                            <select id="strategy-select">
-                                <option value="random">Random (Async)</option>
-                                <option value="sequential">Sequential (Async)</option>
-                                <option value="synchronous">Synchronous (All)</option>
-                            </select>
-                        </div>
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="check-stochastic">
-                            <label for="check-stochastic">Stochastic (Gibbs)</label>
-                        </div>
-                        <div class="slider-box" id="temp-box" style="display: none;">
-                            <label for="temp-slider">Temperature (T): <input type="number" id="temp-input" step="0.1"
-                                    min="0.1" max="10.0" value="1.0"></label>
-                            <input type="range" id="temp-slider" min="0.1" max="5.0" step="0.1" value="1.0">
-                        </div>
+                    </div>
+                    <div class="slider-box">
+                        <label for="speed-slider">Speed (fps):</label>
+                        <input type="range" id="speed-slider" min="1" max="60" value="10">
+                    </div>
+                    <div class="select-box">
+                        <label for="strategy-select">Update Strategy:</label>
+                        <select id="strategy-select">
+                            <option value="random">Random (Async)</option>
+                            <option value="sequential">Sequential (Async)</option>
+                            <option value="synchronous">Synchronous (All)</option>
+                        </select>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="check-meanfield">
+                        <label for="check-meanfield">Mean Field (Deterministic)</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="check-stochastic">
+                        <label for="check-stochastic">Stochastic (Gibbs)</label>
+                    </div>
+                    <div class="slider-box" id="temp-box" style="display: none;">
+                        <label for="temp-slider">Temperature (T): <input type="number" id="temp-input" step="0.1"
+                                min="0.1" max="100" value="1.0"></label>
+                        <input type="range" id="temp-slider" min="0.1" max="20" step="0.1" value="1.0">
                     </div>
                 </section>
 
+                <!-- SECTION 2: ARCHITECTURE -->
                 <section class="control-section">
-                    <h3>Network</h3>
+                    <h3>Architecture</h3>
                     <div class="control-group-vertical">
                         <div class="slider-box">
-                            <label for="neuron-slider">Neurons (N): <input type="number" id="neuron-input" step="1"
-                                    min="3" max="1024" value="6"></label>
+                            <label for="neuron-slider">Neurons (N): <input type="number" id="neuron-input" min="3"
+                                    max="1024" value="6"></label>
                             <input type="range" id="neuron-slider" min="3" max="1024" value="6">
                         </div>
                         <div class="presets-grid">
@@ -68,41 +76,57 @@
                             <button class="preset-btn" data-val="900">30²</button>
                             <button class="preset-btn" data-val="1024">32²</button>
                         </div>
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="binary-weights">
-                            <label for="binary-weights" id="label-binary">Binary Weights</label>
+                        <div class="slider-box">
+                            <label for="hidden-slider">Hidden Units (%): <input type="number" id="hidden-input" step="5"
+                                    min="0" max="90" value="0"></label>
+                            <input type="range" id="hidden-slider" min="0" max="90" step="5" value="0">
                         </div>
-                        <div class="checkbox-group">
-                            <input type="checkbox" id="zero-diagonal" checked>
-                            <label for="zero-diagonal">Zero Diagonal</label>
+
+                        <div class="control-group-vertical"
+                            style="margin-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 0.5rem;">
+                            <label style="font-size: 0.85rem; color: #94a3b8; margin-bottom: 0.25rem;">Weights</label>
+                            <div class="select-box">
+                                <select id="symmetry-select">
+                                    <option value="symmetric">Symmetric</option>
+                                    <option value="antisymmetric">Anti-Symmetric</option>
+                                    <option value="asymmetric">Asymmetric</option>
+                                    <option value="fullydiagonal">Fully Diagonal</option>
+                                </select>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="zero-diagonal" checked>
+                                <label for="zero-diagonal">Zero Diagonal</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="binary-weights">
+                                <label for="binary-weights">Binary Weights ±1</label>
+                            </div>
+                            <button id="btn-reset-weights" class="danger-btn">Reset Weights</button>
                         </div>
-                        <div class="select-box">
-                            <label for="symmetry-select">Symmetry</label>
-                            <select id="symmetry-select">
-                                <option value="symmetric">Symmetric</option>
-                                <option value="antisymmetric">Anti-Symmetric</option>
-                                <option value="fullydiagonal">Fully Diagonal</option>
-                                <option value="asymmetric">Asymmetric</option>
-                            </select>
-                        </div>
-                        <button id="btn-reset-weights" class="secondary">New Random Weights</button>
-                        <button id="btn-reset-state" class="secondary">Randomize State</button>
                     </div>
                 </section>
 
-                <section class="control-section">
-                    <h3>Memory Pattern</h3>
+                <!-- SECTION 2: UNSUPERVISED LEARNING -->
+                <section class="control-group-vertical"
+                    style="border: 1px solid rgba(139, 92, 246, 0.3); background: rgba(139, 92, 246, 0.05); padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                    <h3 style="color: #a855f7; margin-top: 0;">Unsupervised Learning (CD-1)</h3>
+                    <div class="slider-box">
+                        <label for="learning-rate-slider">Learning Rate (η): <input type="number"
+                                id="learning-rate-input" step="0.001" min="0.001" max="1.0" value="0.01"></label>
+                        <input type="range" id="learning-rate-slider" min="0.001" max="0.5" step="0.001" value="0.01">
+                    </div>
+
                     <div class="control-group-vertical">
                         <div class="select-box">
-                            <label for="pattern-type-select">Pattern Type</label>
+                            <label>Training Data:</label>
                             <select id="pattern-type-select">
-                                <option value="digit">Digits (0-9)</option>
+                                <option value="digit">Handwritten Digits</option>
                                 <option value="random">Random Noise</option>
                             </select>
                         </div>
                         <div class="slider-box">
-                            <label for="pattern-count-slider">Number of Patterns (p): <input type="number"
-                                    id="pattern-count-input" step="1" min="1" max="100" value="1"></label>
+                            <label for="pattern-count-slider">Patterns: <input type="number" id="pattern-count-input"
+                                    min="1" max="100" value="1"></label>
                             <input type="range" id="pattern-count-slider" min="1" max="10" value="1">
                         </div>
                         <div class="slider-box">
@@ -110,10 +134,13 @@
                                     id="pattern-noise-input" step="0.01" min="0" max="1" value="0.05"></label>
                             <input type="range" id="pattern-noise-slider" min="0" max="1" step="0.01" value="0.05">
                         </div>
-                        <button id="btn-rank1" class="accent-btn" title="Set W = 1/p ∑ m mᵀ">Store Patterns
-                            (W=∑m·mᵀ)</button>
+                        <button id="btn-rank1" title="Store Patterns immediately (Hebbian)">Hebbian One-Shot</button>
+                        <button id="btn-train" class="accent-btn" title="Run Contrastive Divergence Loop">Run Training
+                            Loop</button>
                     </div>
                 </section>
+
+
 
                 <section class="control-section diagnostics" id="overlap-display" style="display: none;">
                     <h3>Diagnostics</h3>
